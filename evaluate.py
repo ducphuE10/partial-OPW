@@ -1,4 +1,5 @@
 import os
+import ot
 import sys
 import torch
 import random
@@ -7,21 +8,22 @@ import argparse
 from os import path as osp
 from tqdm import tqdm
 from copy import deepcopy
-from ot.opw import opw_partial_wasserstein
+
 
 sys.path.append(osp.dirname(osp.dirname(osp.abspath(__file__))))
 from data.data_module import DataModule
 from models.model_utils import cosine_sim, linear_sim
 from dp.exact_dp import dtw, drop_dtw, otam, NW, lcss
-from dp.dp_utils import compute_all_costs,compute_OT_costs
+from dp.dp_utils import compute_all_costs
+from dp.ot_utils import compute_OPW_costs,compute_OT_costs
 from models.nets import EmbeddingsMapping
 from models.model_utils import load_last_checkpoint
 from eval.metrics import framewise_accuracy, IoU, recall_crosstask
 
 
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
-
+    
 def framewise_eval(dataset, model, keep_p, gamma=1, config=None):
     """ evaluate representations using framewise accuracy """
     
@@ -53,15 +55,22 @@ def framewise_eval(dataset, model, keep_p, gamma=1, config=None):
 
         # defining matching and drop costs
         if config.dp_algo in ['OPW']:
-            M = compute_OT_costs(sample=sample)
-            a = np.ones(M.shape[0])/M.shape[0]
-            b = np.ones(M.shape[1])/M.shape[1]
-            soft_assignment = opw_partial_wasserstein(a, b, M, m = 0.7, nb_dummies=1, dummy_value=0, drop_both_side = False , lambda1=0, lambda2=0.05)
+            D = compute_OT_costs(sample=sample)
+            D,a,b = compute_OPW_costs(D,lambda1 = 0, lambda2=0.1, delta=1, m=0.7,dropBothSides=False)
+            soft_assignment = ot.emd(a,b,D)
+            # M = compute_OT_costs(sample=sample)
+            # a = np.ones(M.shape[0])/M.shape[0]
+            # b = np.ones(M.shape[1])/M.shape[1]
+            # from ot.opw import opw_partial_wasserstein_exact
+            # soft_assignment = opw_partial_wasserstein_exact(a, b, M, m = 0.7, nb_dummies=1, dummy_value=0, drop_both_side = False , lambda1=0, lambda2=0.05)
+            # import matplotlib.pyplot as plt
+            # import seaborn as sns
+            # plt.figure(figsize=(10, 10))
             soft_assignment = soft_assignment.cpu().detach().numpy()
-
             optimal_assignment = np.argmax(soft_assignment,0)
-            optimal_assignment[optimal_assignment == M.shape[0]-1] = -1
-        if config.dp_algo in ['DropDTW', 'NW', 'LCSS']:
+            optimal_assignment[optimal_assignment == D.shape[0]-1] = -1
+
+        elif config.dp_algo in ['DropDTW', 'NW', 'LCSS']:
             dp_fn_dict = {'DropDTW': drop_dtw, 'NW': NW, 'LCSS': lcss}
             dp_fn = dp_fn_dict[config.dp_algo]
             optimal_assignment = dp_fn(zx_costs, drop_costs, return_labels=True) - 1
@@ -84,6 +93,9 @@ def framewise_eval(dataset, model, keep_p, gamma=1, config=None):
             optimal_assignment, sample, use_unlabeled=config.use_unlabeled)
         iou['simple'] += IoU(simple_assignment, sample)
         iou['dp'] += IoU(optimal_assignment, sample)
+        # print(accuracy['dp'])
+        # print(iou['dp'])
+        # exit()
     num_samples = len(dataset)
     return [v / num_samples for v in
             [accuracy['simple'], accuracy['dp'], iou['simple'], iou['dp']]]
@@ -129,7 +141,7 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', type=str, default='COIN', help='dataset')
     parser.add_argument('--name', type=str, default='', help='model for evaluation, if nothing is given, evaluate pretrained features')
     parser.add_argument('--distance', type=str, default='inner', help='distance type')
-    parser.add_argument('--dp_algo', type=str, default='OPW', choices=['OPW','DropDTW', 'OTAM', 'DTW', 'NW', 'LCSS'], help='distance type')
+    parser.add_argument('--dp_algo', type=str, default='DropDTW', choices=['OPW','DropDTW', 'OTAM', 'DTW', 'NW', 'LCSS'], help='distance type')
     parser.add_argument('--drop_cost', type=str, default='logit', help='Whather do drop in drop-dtw')
     parser.add_argument('--keep_percentile', type=float, default=0.3, help='If drop_cost is logits, the percentile to set the drop to')
     parser.add_argument('--use_unlabeled', type=bool, default=True,
