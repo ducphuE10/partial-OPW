@@ -11,7 +11,15 @@ from models.model_utils import unique_softmax
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+def cosine_sim(x, z):
+    cos_sim_fn = torch.nn.CosineSimilarity(dim=1)
+    return cos_sim_fn(x[..., None], z.T[None, ...])
 
+def compute_OT_costs(sample):
+    step_features, frame_features = sample['step_features'], sample['frame_features']
+    return 1 - cosine_sim(step_features, frame_features)
+
+    
 def compute_all_costs(sample, distractor, gamma_xz, drop_cost_type, keep_percentile, l2_nomalize=False):
     """This function computes pairwise match and individual drop costs used in Drop-DTW
 
