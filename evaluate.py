@@ -42,6 +42,12 @@ def framewise_eval(dataset, model, keep_p, gamma=1, config=None):
             step_features = sample['step_features'].cpu()
         sample['frame_features'] = frame_features
         sample['step_features'] = step_features
+        #######################################################
+        if args.change_position == True:
+            # print(sample['step_features'].shape)
+            sample['step_features'][0] = step_features[1]
+            sample['step_features'][1] = step_features[0]
+        #######################################################
         sim = (step_features @ frame_features.T)
         if config.drop_cost == 'learn':
             distractor = model.compute_distractors(step_features.mean(0).to(device)).detach().cpu()
@@ -58,17 +64,19 @@ def framewise_eval(dataset, model, keep_p, gamma=1, config=None):
             D = compute_OT_costs(sample=sample)
             D,a,b = compute_OPW_costs(D,lambda1 = 0, lambda2=0.1, delta=1, m=0.7,dropBothSides=False)
             soft_assignment = ot.emd(a,b,D)
-            # M = compute_OT_costs(sample=sample)
-            # a = np.ones(M.shape[0])/M.shape[0]
-            # b = np.ones(M.shape[1])/M.shape[1]
-            # from ot.opw import opw_partial_wasserstein_exact
-            # soft_assignment = opw_partial_wasserstein_exact(a, b, M, m = 0.7, nb_dummies=1, dummy_value=0, drop_both_side = False , lambda1=0, lambda2=0.05)
-            # import matplotlib.pyplot as plt
-            # import seaborn as sns
-            # plt.figure(figsize=(10, 10))
             soft_assignment = soft_assignment.cpu().detach().numpy()
-            optimal_assignment = np.argmax(soft_assignment,0)
-            optimal_assignment[optimal_assignment == D.shape[0]-1] = -1
+
+            #-------------------NEW-------------------
+            optimal_assignment = np.argmax(soft_assignment[:-1],0)
+            outlier_index = np.argmax(soft_assignment[-1])
+            optimal_assignment[outlier_index] = -1
+            print(optimal_assignment)
+            #-----------------------------------------
+            #-------------------OLD-------------------
+            # optimal_assignment = np.argmax(soft_assignment,0)
+            # optimal_assignment[optimal_assignment == D.shape[0]-1] = -1
+            #-----------------------------------------
+            
 
         elif config.dp_algo in ['DropDTW', 'NW', 'LCSS']:
             dp_fn_dict = {'DropDTW': drop_dtw, 'NW': NW, 'LCSS': lcss}
@@ -85,7 +93,19 @@ def framewise_eval(dataset, model, keep_p, gamma=1, config=None):
 
         simple_assignment = np.argmax(sim, axis=0)
         simple_assignment[drop_costs < zx_costs.min(0)] = -1
-        
+
+
+        # print(sample['step_starts'])
+        change_position = args.change_position
+        if change_position:
+            tmp_starts = torch.clone(sample['step_starts'])
+            tmp_ends = torch.clone(sample['step_ends'])
+            sample['step_starts'][0] = tmp_starts[-1]
+            sample['step_starts'][-1] = tmp_starts[0]
+            sample['step_ends'][0] = tmp_ends[-1]
+            sample['step_ends'][-1] = tmp_ends[0]
+        # print(sample['step_starts'])
+
         # get framewise accuracy for each vid
         accuracy['simple'] += framewise_accuracy(
             simple_assignment, sample, use_unlabeled=config.use_unlabeled)
@@ -93,9 +113,7 @@ def framewise_eval(dataset, model, keep_p, gamma=1, config=None):
             optimal_assignment, sample, use_unlabeled=config.use_unlabeled)
         iou['simple'] += IoU(simple_assignment, sample)
         iou['dp'] += IoU(optimal_assignment, sample)
-        # print(accuracy['dp'])
-        # print(iou['dp'])
-        # exit()
+
     num_samples = len(dataset)
     return [v / num_samples for v in
             [accuracy['simple'], accuracy['dp'], iou['simple'], iou['dp']]]
@@ -146,8 +164,9 @@ if __name__ == '__main__':
     parser.add_argument('--keep_percentile', type=float, default=0.3, help='If drop_cost is logits, the percentile to set the drop to')
     parser.add_argument('--use_unlabeled', type=bool, default=True,
                         help='use unlabeled frames in comparison (useful to consider dropped steps)')
+    parser.add_argument('--change_position',type = bool, default = False)
     args = parser.parse_args()
-    print(args)
+    # print(args)
 
     # fix random seed
     torch.manual_seed(1)

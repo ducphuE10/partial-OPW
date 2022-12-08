@@ -19,7 +19,6 @@ class DataModule(pl.LightningDataModule):
             folder = CT_PATH
         else:
             raise f"No such dataset {dataset_name}"
-
         self.lmdb_path = os.path.join(folder, 'lmdb')
         self.n_cls = n_cls
         self.batch_size = batch_size

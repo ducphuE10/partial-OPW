@@ -13,8 +13,8 @@ def framewise_accuracy(frame_assignment, sample, use_unlabeled=False):
     # convert start and end times to clip/frame -wise labels
     for s in np.arange(num_steps):
         st_ed = np.arange(sample['step_starts'][s], sample['step_ends'][s]+1)
-        gt_assignment[st_ed] = s 
-    
+        gt_assignment[st_ed] = s
+    # print(gt_assignment)
     # to discount unlabeled frames in gt
     if not use_unlabeled:
         unlabled = np.count_nonzero(gt_assignment == -1)
@@ -23,7 +23,9 @@ def framewise_accuracy(frame_assignment, sample, use_unlabeled=False):
     else:
         fa = np.count_nonzero((frame_assignment == gt_assignment))
     # framewise accuracy
+
     fa = fa / num_frames if num_frames != 0 else 0
+
     return fa
 
 

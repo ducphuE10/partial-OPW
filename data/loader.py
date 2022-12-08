@@ -24,7 +24,7 @@ class LMDB_Folder_Dataset(Dataset):
             file_has_split = ['_{}'.format(split) in f for f in files]
             if any(file_has_split):
                 cls_folders.append(cls_folder)
-                    
+        
         # instantiating datasets for each class
         self.cls_datasets = [LMDB_Class_Dataset(f, split, transform, truncate) for f in cls_folders]
         self.cls_lens = [len(d) for d in self.cls_datasets]
@@ -57,7 +57,9 @@ class LMDB_Folder_Dataset(Dataset):
 
 class LMDB_Class_Dataset(Dataset):
     def __init__(self, cls_folder, split='train', transform=None, truncate=0):
+        cls_folder = cls_folder.replace("\\","/")
         split_name = osp.basename(cls_folder.rstrip('/')).split('_')
+
         if len(split_name) == 2:
             self.cls_id = int(split_name[0])
         else:
